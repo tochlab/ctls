@@ -10,7 +10,7 @@ static char *hex2bin(char *hexstring, int len8) {
 	char *src = hexstring;
 	char *dst = result;
 	for( int i = 0;i<resultlen8;i++) {
-		char tmp_char = 0;
+		int tmp_char = 0;
 		sscanf(src, "%2x",&tmp_char);
 		*dst = tmp_char;
 		dst++;
