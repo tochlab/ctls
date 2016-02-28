@@ -7,12 +7,9 @@ char rotchar(int c, int count, int start) {
 
 int main() {
 	int c = 0;
-	while( c != EOF ) {
-		c = fgetc(stdin);
+	while( (c = fgetc(stdin)) != EOF ) {
 		if( !isalpha(c) ) { 
-			if( isprint(c) ) {
-				printf("%c", c);
-			}
+			printf("%c", c);
 		}
 		else {
 			if( isupper(c) ) {
