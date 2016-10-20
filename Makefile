@@ -1,4 +1,4 @@
-CFLAGS=-std=c99 -Wall -Wextra
+CFLAGS=-std=c99 -Wall -Wextra -pedantic
 
 default:
 	$(CC) $(CFLAGS) hex2bin.c -o hex2bin
