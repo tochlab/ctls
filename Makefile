@@ -5,6 +5,7 @@ default:
 	$(CC) $(CFLAGS) rot13.c -o rot13
 	$(CC) $(CFLAGS) xor.c -o xor
 	$(CC) $(CFLAGS) lib/listdir.c listdir.c -o listdir
+	$(CC) $(CFLAGS) lib/rawfs.c rawtest.c -o rawtest
 
 clean:
-	rm -f hex2bin rot13 xor listdir
+	rm -f hex2bin rot13 xor listdir rawtest
