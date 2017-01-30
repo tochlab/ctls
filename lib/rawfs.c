@@ -36,6 +36,7 @@ size_t rawfs_write(rawfs_t *fs, uint32_t id, void *buf, size_t size) {
     size_t wlen = size / fs->device_count;
 
     for( int i = 0;i<fs->device_count;i++ ) {
+        lseek(fs->devices[i]->fd, SEEK_SET, fs->devices[i]->last_off);
         int result = write(fs->devices[i]->fd, &wbuf[wlen * i], wlen);
         record_t *rec = calloc(1, sizeof(record_t));
         rec->key = id;
@@ -50,11 +51,34 @@ size_t rawfs_write(rawfs_t *fs, uint32_t id, void *buf, size_t size) {
 }
 
 size_t rawfs_read(rawfs_t *fs, uint32_t id, void *buf, size_t size) {
+    record_t **records_to_read = calloc(fs->device_count, sizeof(record_t*));
+    for(int dev_idx=0;dev_idx<fs->device_count;dev_idx++) {
+        record_t **rec_map = fs->devices[dev_idx]->recordmap;
+        size_t map_size = fs->devices[dev_idx]->recordmap_size;
+        for( unsigned int rec_idx= 0;rec_idx<map_size;rec_idx++) {
+            if(rec_map[rec_idx]->key == id) {
+                records_to_read[dev_idx] = rec_map[rec_idx];
+            }
+        }
+    }
+
+    char *buf_start = buf;
+    size_t readed = 0;
+    for(int read_idx=0;read_idx<fs->device_count;read_idx++) {
+        lseek(fs->devices[read_idx]->fd, SEEK_SET, records_to_read[read_idx]->offset);
+        readed += read(fs->devices[read_idx]->fd, buf_start, records_to_read[read_idx]->size);
+        buf_start+=records_to_read[read_idx]->size;
+    }
+
+    if( size != readed ) {
+        fprintf(stderr,"rawfs_read warning: size %zd readed %zd", size, readed);
+    }
+
     return 0;
 }
 
 int rawfs_delete(rawfs_t *fs, uint32_t id) {
-    for(unsigned int dev_idx = 0;dev_idx<fs->device_count;dev_idx++) {
+    for(int dev_idx = 0;dev_idx<fs->device_count;dev_idx++) {
         record_t **rec_map = fs->devices[dev_idx]->recordmap;
         size_t map_size = fs->devices[dev_idx]->recordmap_size;
         for(unsigned int rec_idx = 0;rec_idx<map_size;rec_idx++) {
@@ -84,7 +108,9 @@ void rawdevice_addrecord(rawdevice_t *device, record_t *rec) {
         device->recordmap_size = 1;
     }
     else {
-        void *ptr = realloc(device->recordmap, sizeof(record_t*) * device->recordmap_size);
+        size_t newsize = sizeof(record_t*) * device->recordmap_size;
+        fprintf(stderr,"DBG: newsize %zd device->recordmap %p\n", newsize, device->recordmap);
+        void *ptr = realloc(device->recordmap, newsize);
         if( ptr == NULL ) {
             fprintf(stderr,__FUNCTION__);
             fprintf(stderr,"realloc failed\n");

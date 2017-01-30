@@ -3,8 +3,8 @@
 int main() {
 
     char *devs[]  = {
-        "device_1.bin",
-        "device_2.bin"
+        "device1.bin",
+        "device2.bin"
     };
 
     #define TESTBUFLEN 1024
@@ -19,10 +19,9 @@ int main() {
         return 1;
     }
 
-    rawfs_write(fs, 1, testbuf, TESTBUFLEN * sizeof(int));
-    rawfs_write(fs, 2, testbuf, TESTBUFLEN * sizeof(int));
-    rawfs_write(fs, 3, testbuf, TESTBUFLEN * sizeof(int));
-
+    for(int test_idx = 0;test_idx<1000;test_idx++) {
+        rawfs_write(fs, test_idx, testbuf, TESTBUFLEN * sizeof(int));
+    }
     rawfs_dump_maps(fs);
 
 }
