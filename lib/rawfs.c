@@ -100,7 +100,7 @@ rawdevice_t *rawdevice_new(int fd, char *devname, int prealloc) {
 
 int rawdevice_addrecord(rawdevice_t *device, record_t *newrec) {
     record_t **map = device->recordmap;
-    for(int i = 0;i<device->recordmap_size-1;i++) {
+    for(int i = 0;i<device->recordmap_size;i++) {
         record_t *rec = map[i];
         if( rec == NULL) {
             map[i] = newrec;
