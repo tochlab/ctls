@@ -62,7 +62,10 @@ size_t rawfs_read(rawfs_t *fs, uint32_t id, void *buf, size_t size) {
     char *buf_start = buf;
     size_t readed = 0;
     for(int read_idx=0;read_idx<fs->device_count;read_idx++) {
-        lseek(fs->devices[read_idx]->fd, SEEK_SET, records_to_read[read_idx]->offset);
+        if( lseek(fs->devices[read_idx]->fd, records_to_read[read_idx]->offset,SEEK_SET ) < 0) {
+            perror("lseek");
+            exit(1);
+        };
         readed += read(fs->devices[read_idx]->fd, buf_start, records_to_read[read_idx]->size);
         buf_start+=records_to_read[read_idx]->size;
     }
