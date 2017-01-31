@@ -1,2 +1,8 @@
 .vscode/
 *.bin
+hex2bin
+listdir
+rawtest
+rot13
+xor
+
