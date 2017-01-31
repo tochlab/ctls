@@ -37,7 +37,10 @@ int rawfs_write(rawfs_t *fs, void *buf, size_t size) {
     int result = -1;
 
     for( int i = 0;i<fs->device_count;i++ ) {
-        lseek(fs->devices[i]->fd, SEEK_SET, fs->devices[i]->last_off);
+        if(lseek(fs->devices[i]->fd, fs->devices[i]->last_off,  SEEK_SET) < 0) {
+            perror("lseek");
+            exit(1);
+        };
         int wr = write(fs->devices[i]->fd, &wbuf[wlen * i], wlen);
         record_t *rec = calloc(1, sizeof(record_t));
         rec->flags = REC_ACTIVE;
