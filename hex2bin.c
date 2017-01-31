@@ -22,9 +22,8 @@ static char *hex2bin(char *hexstring, int len8) {
 int main() {
 	#define MAX_BLOCK_LEN8 1024
 	char read_buf[ MAX_BLOCK_LEN8 ];
-	int readed = 0;
 	for(;;) {
-		readed = fread(&read_buf[0], sizeof(char), MAX_BLOCK_LEN8, stdin);
+		int readed = fread(&read_buf[0], sizeof(char), MAX_BLOCK_LEN8, stdin);
 		if(readed < 1) {
 		    break;
 		}
