@@ -14,6 +14,11 @@ typedef struct {
     rawdevice_t *dev;
 } disk_cmd_t;
 
+static void *rawdevice_write(void *arg);
+static void *rawdevice_read(void *arg);
+rawdevice_t *rawdevice_new(int fd, char *devname);
+void rawdevice_free(rawdevice_t *dev);
+
 rawfs_t *rawfs_new(char *devlist[], int devcount, int prealloc) {
     rawfs_t *result = (rawfs_t *) calloc(1, sizeof(rawfs_t));
     rawdevice_t **devices = (rawdevice_t **) calloc(devcount, sizeof(rawdevice_t*));
@@ -34,39 +39,34 @@ rawfs_t *rawfs_new(char *devlist[], int devcount, int prealloc) {
     }
     result->devices = devices;
     result->device_count = devcount;
-    result->recordmap = calloc(sizeof(record_t*), prealloc);
+    result->recordmap = calloc(prealloc, sizeof(record_t*) );
     result->recordmap_size = prealloc;
-    result->thread_holder = calloc(sizeof(pthread_t), devcount);
+    result->thread_holder = calloc(devcount, sizeof(pthread_t) );
     
     return result;
 }
 
-static void *rawdevice_write(void *arg) {
-    disk_cmd_t *warg = (disk_cmd_t *) arg;
-
-    if(lseek(warg->dev->fd, warg->dev->last_off,  SEEK_SET) < 0) {
-        perror("lseek");
-        exit(1);
-    };
-    int wr = write(warg->dev->fd, warg->buf, warg->len);
-    warg->rec->size = wr;
-    warg->rec->offset = warg->dev->last_off;
-    warg->dev->last_off += wr;
-    return NULL;
-}
-
-static void *rawdevice_read(void *arg) {
-    disk_cmd_t *cmd = (disk_cmd_t *) arg;
-    if( lseek( cmd->dev->fd, cmd->rec->offset,SEEK_SET ) < 0) {
-        perror("lseek");
-        exit(1);
-    };
-    int readed = read(cmd->dev->fd, cmd->buf, cmd->len);
-    if( readed != cmd->len ) {
-        fprintf(stderr,"rawdevice_read: ask %d read %d\n", cmd->len, readed);
+void rawfs_free(rawfs_t *fs) {
+    for( int i = 0;i<fs->device_count;i++) {
+        rawdevice_free(fs->devices[i]);
+        fs->devices[i] = NULL;
     }
-    return NULL;
+
+    free(fs->devices);
+    fs->devices = NULL;
+
+    for( int i = 0;i<fs->recordmap_size;i++) {
+        free(fs->recordmap[i]);
+        fs->recordmap[i] = NULL;
+    }
+
+    free(fs->thread_holder);
+    fs->thread_holder = NULL;
+
+    free(fs);
+    fs = NULL;
 }
+
 
 int rawfs_write(rawfs_t *fs, void *buf, size_t size) {
     char *wbuf = (char *) buf;
@@ -92,7 +92,7 @@ int rawfs_write(rawfs_t *fs, void *buf, size_t size) {
     }
 
     for( int i = 0;i<fs->device_count;i++ ) {
-        disk_cmd_t *warg = calloc(sizeof(disk_cmd_t), 1);
+        disk_cmd_t *warg = calloc(1,sizeof(disk_cmd_t) );
         warg->buf = &wbuf[wlen * i];
         warg->len = wlen;
         warg->rec = fs->recordmap[widx];
@@ -116,7 +116,7 @@ size_t rawfs_read(rawfs_t *fs, uint32_t id, void *buf, size_t size) {
 
     char *buf_start = buf;
     for(int read_idx=0;read_idx<fs->device_count;read_idx++) {
-        disk_cmd_t *rarg = calloc(sizeof(disk_cmd_t), 1);
+        disk_cmd_t *rarg = calloc(1,sizeof(disk_cmd_t));
         rarg->buf = buf_start;
         rarg->len = record_to_read->size;
         rarg->rec = record_to_read;
@@ -141,6 +141,20 @@ int rawfs_delete(rawfs_t *fs, uint32_t id) {
     return 0;
 }
 
+void rawfs_dump_maps(rawfs_t *fs) {
+    fprintf(stderr,"Dumping records.\n");
+    for(int i = 0;i<fs->device_count;i++) {
+        fprintf(stderr,"%s:\n", fs->devices[i]->devname);
+        record_t **rec_map = fs->recordmap;
+        for(int p = 0;p<fs->recordmap_size;p++) {
+            if( rec_map[p] != NULL ) {
+                fprintf(stderr,"%4d %08zx %08zx %08x\n", p, rec_map[p]->offset, rec_map[p]->size, rec_map[p]->flags);
+            }
+        }
+        fprintf(stderr,"Device last_off = %zd\n", fs->devices[i]->last_off);
+    }
+}
+
 rawdevice_t *rawdevice_new(int fd, char *devname) {
     rawdevice_t *result = calloc(1, sizeof(rawdevice_t));
     result->fd = fd;
@@ -155,16 +169,31 @@ void rawdevice_free(rawdevice_t *dev) {
     free(dev);
 }
 
-void rawfs_dump_maps(rawfs_t *fs) {
-    fprintf(stderr,"Dumping records.\n");
-    for(int i = 0;i<fs->device_count;i++) {
-        fprintf(stderr,"%s:\n", fs->devices[i]->devname);
-        record_t **rec_map = fs->recordmap;
-        for(int p = 0;p<fs->recordmap_size;p++) {
-            if( rec_map[p] != NULL ) {
-                fprintf(stderr,"%4d %08zx %08zx %08x\n", p, rec_map[p]->offset, rec_map[p]->size, rec_map[p]->flags);
-            }
-        }
-        fprintf(stderr,"Device last_off = %zd\n", fs->devices[i]->last_off);
+static void *rawdevice_write(void *arg) {
+    disk_cmd_t *warg = (disk_cmd_t *) arg;
+
+    if(lseek(warg->dev->fd, warg->dev->last_off,  SEEK_SET) < 0) {
+        perror("lseek");
+        exit(1);
+    };
+    int wr = write(warg->dev->fd, warg->buf, warg->len);
+    warg->rec->size = wr;
+    warg->rec->offset = warg->dev->last_off;
+    warg->dev->last_off += wr;
+    free(warg);
+    return NULL;
+}
+
+static void *rawdevice_read(void *arg) {
+    disk_cmd_t *cmd = (disk_cmd_t *) arg;
+    if( lseek( cmd->dev->fd, cmd->rec->offset,SEEK_SET ) < 0) {
+        perror("lseek");
+        exit(1);
+    };
+    int readed = read(cmd->dev->fd, cmd->buf, cmd->len);
+    if( readed != cmd->len ) {
+        fprintf(stderr,"rawdevice_read: ask %d read %d\n", cmd->len, readed);
     }
+    free(arg);
+    return NULL;
 }
