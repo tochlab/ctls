@@ -121,12 +121,11 @@ size_t rawfs_read(rawfs_t *fs, uint32_t id, void *buf, size_t size) {
 }
 
 int rawfs_delete(rawfs_t *fs, uint32_t id) {
-    for(int dev_idx = 0;dev_idx<fs->device_count;dev_idx++) {
-        record_t *rec = fs->recordmap[id];
-        if( rec != NULL) {
-                rec->flags = REC_DELETED;
-        }
+    record_t *rec = fs->recordmap[id];
+    if( rec == NULL ) {
+        return -1;
     }
+    rec->flags = REC_DELETED;
     return 0;
 }
 
