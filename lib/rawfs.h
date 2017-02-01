@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -23,7 +24,6 @@ typedef struct {
 typedef struct {
     rawdevice_t **devices;
     int device_count;
-
     record_t **recordmap;
     int recordmap_size;    
 } rawfs_t;

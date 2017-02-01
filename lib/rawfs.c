@@ -11,6 +11,7 @@ typedef struct {
     void *buf;
     int len;
     record_t *rec;
+    rawdevice_t *dev;
 } write_arg;
 
 rawfs_t *rawfs_new(char *devlist[], int devcount, int prealloc) {
@@ -39,20 +40,18 @@ rawfs_t *rawfs_new(char *devlist[], int devcount, int prealloc) {
     return result;
 }
 
-int rawdevice_write(rawdevice_t *dev, void *arg) {
+static int rawdevice_write(void *arg) {
     write_arg *warg = (write_arg *) arg;
-    int result = -1;
 
-    if(lseek(dev->fd, dev->last_off,  SEEK_SET) < 0) {
+    if(lseek(warg->dev->fd, warg->dev->last_off,  SEEK_SET) < 0) {
         perror("lseek");
         exit(1);
     };
-    int wr = write(dev->fd, warg->buf, warg->len);
+    int wr = write(warg->dev->fd, warg->buf, warg->len);
     warg->rec->size = wr;
-    warg->rec->offset = dev->last_off;
-    dev->last_off += wr;
-    result = wr;
-    return result;
+    warg->rec->offset = warg->dev->last_off;
+    warg->dev->last_off += wr;
+    return wr;
 }
 
 int rawfs_write(rawfs_t *fs, void *buf, size_t size) {
@@ -80,11 +79,12 @@ int rawfs_write(rawfs_t *fs, void *buf, size_t size) {
     }
 
     for( int i = 0;i<fs->device_count;i++ ) {
-        write_arg warg;
-        warg.buf = &wbuf[wlen * i];
-        warg.len = wlen;
-        warg.rec = fs->recordmap[widx];
-        result = rawdevice_write(fs->devices[i], &warg);
+        write_arg *warg = calloc(sizeof(write_arg), 1);
+        warg->buf = &wbuf[wlen * i];
+        warg->len = wlen;
+        warg->rec = fs->recordmap[widx];
+        warg->dev = fs->devices[i];
+        result = rawdevice_write(warg);
     }
 
     return result;
