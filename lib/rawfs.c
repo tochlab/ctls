@@ -12,7 +12,7 @@ typedef struct {
     int len;
     record_t *rec;
     rawdevice_t *dev;
-} write_arg;
+} disk_cmd_t;
 
 rawfs_t *rawfs_new(char *devlist[], int devcount, int prealloc) {
     rawfs_t *result = (rawfs_t *) calloc(1, sizeof(rawfs_t));
@@ -42,7 +42,7 @@ rawfs_t *rawfs_new(char *devlist[], int devcount, int prealloc) {
 }
 
 static void *rawdevice_write(void *arg) {
-    write_arg *warg = (write_arg *) arg;
+    disk_cmd_t *warg = (disk_cmd_t *) arg;
 
     if(lseek(warg->dev->fd, warg->dev->last_off,  SEEK_SET) < 0) {
         perror("lseek");
@@ -55,10 +55,22 @@ static void *rawdevice_write(void *arg) {
     return NULL;
 }
 
+static void *rawdevice_read(void *arg) {
+    disk_cmd_t *cmd = (disk_cmd_t *) arg;
+    if( lseek( cmd->dev->fd, cmd->rec->offset,SEEK_SET ) < 0) {
+        perror("lseek");
+        exit(1);
+    };
+    int readed = read(cmd->dev->fd, cmd->buf, cmd->len);
+    if( readed != cmd->len ) {
+        fprintf(stderr,"rawdevice_read: ask %d read %d\n", cmd->len, readed);
+    }
+    return NULL;
+}
+
 int rawfs_write(rawfs_t *fs, void *buf, size_t size) {
     char *wbuf = (char *) buf;
     size_t wlen = size / fs->device_count;
-    int result = -1;
     record_t *newrecord = calloc(1, sizeof(record_t));
     newrecord->flags = REC_ACTIVE;
     newrecord->size = wlen;
@@ -80,19 +92,19 @@ int rawfs_write(rawfs_t *fs, void *buf, size_t size) {
     }
 
     for( int i = 0;i<fs->device_count;i++ ) {
-        write_arg *warg = calloc(sizeof(write_arg), 1);
+        disk_cmd_t *warg = calloc(sizeof(disk_cmd_t), 1);
         warg->buf = &wbuf[wlen * i];
         warg->len = wlen;
         warg->rec = fs->recordmap[widx];
         warg->dev = fs->devices[i];
-        //result = rawdevice_write(warg);
         pthread_create(&fs->thread_holder[i], NULL, &rawdevice_write, warg);
     }
 
-    pthread_join(fs->thread_holder[0], NULL);
-    pthread_join(fs->thread_holder[1], NULL);
+    for(int i = 0;i<fs->device_count;i++) {
+        pthread_join(fs->thread_holder[i], NULL);
+    }
 
-    return result;
+    return widx;
 }
 
 size_t rawfs_read(rawfs_t *fs, uint32_t id, void *buf, size_t size) {
@@ -103,21 +115,21 @@ size_t rawfs_read(rawfs_t *fs, uint32_t id, void *buf, size_t size) {
     }
 
     char *buf_start = buf;
-    size_t readed = 0;
     for(int read_idx=0;read_idx<fs->device_count;read_idx++) {
-        if( lseek(fs->devices[read_idx]->fd, record_to_read->offset,SEEK_SET ) < 0) {
-            perror("lseek");
-            exit(1);
-        };
-        readed += read(fs->devices[read_idx]->fd, buf_start, record_to_read->size);
+        disk_cmd_t *rarg = calloc(sizeof(disk_cmd_t), 1);
+        rarg->buf = buf_start;
+        rarg->len = record_to_read->size;
+        rarg->rec = record_to_read;
+        rarg->dev = fs->devices[read_idx];
+        pthread_create(&fs->thread_holder[read_idx], NULL, &rawdevice_read,rarg);
         buf_start+=record_to_read->size;
     }
 
-    if( size != readed ) {
-        fprintf(stderr,"rawfs_read warning: size %zd readed %zd", size, readed);
+    for(int i = 0;i<fs->device_count;i++) {
+        pthread_join(fs->thread_holder[i], NULL);
     }
 
-    return 0;
+    return size;
 }
 
 int rawfs_delete(rawfs_t *fs, uint32_t id) {
