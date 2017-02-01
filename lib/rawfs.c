@@ -36,11 +36,12 @@ rawfs_t *rawfs_new(char *devlist[], int devcount, int prealloc) {
     result->device_count = devcount;
     result->recordmap = calloc(sizeof(record_t*), prealloc);
     result->recordmap_size = prealloc;
+    result->thread_holder = calloc(sizeof(pthread_t), devcount);
     
     return result;
 }
 
-static int rawdevice_write(void *arg) {
+static void *rawdevice_write(void *arg) {
     write_arg *warg = (write_arg *) arg;
 
     if(lseek(warg->dev->fd, warg->dev->last_off,  SEEK_SET) < 0) {
@@ -51,7 +52,7 @@ static int rawdevice_write(void *arg) {
     warg->rec->size = wr;
     warg->rec->offset = warg->dev->last_off;
     warg->dev->last_off += wr;
-    return wr;
+    return NULL;
 }
 
 int rawfs_write(rawfs_t *fs, void *buf, size_t size) {
@@ -84,8 +85,12 @@ int rawfs_write(rawfs_t *fs, void *buf, size_t size) {
         warg->len = wlen;
         warg->rec = fs->recordmap[widx];
         warg->dev = fs->devices[i];
-        result = rawdevice_write(warg);
+        //result = rawdevice_write(warg);
+        pthread_create(&fs->thread_holder[i], NULL, &rawdevice_write, warg);
     }
+
+    pthread_join(fs->thread_holder[0], NULL);
+    pthread_join(fs->thread_holder[1], NULL);
 
     return result;
 }

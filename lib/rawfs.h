@@ -1,8 +1,8 @@
-#define _GNU_SOURCE
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <sys/types.h>
+#include <pthread.h>
 
 typedef enum {
     REC_ACTIVE,
@@ -26,6 +26,7 @@ typedef struct {
     int device_count;
     record_t **recordmap;
     int recordmap_size;    
+    pthread_t *thread_holder;
 } rawfs_t;
 
 rawfs_t *rawfs_new(char *devlist[], int devcount, int prealloc);
