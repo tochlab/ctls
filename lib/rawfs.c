@@ -7,15 +7,20 @@
 #include <unistd.h>
 #include <string.h>
 
+typedef enum {
+    CMD_READ,
+    CMD_WRITE
+} cmd_direction_t;
+
 typedef struct {
     void *buf;
-    int len;
-    record_t *rec;
-    rawdevice_t *dev;
+    ssize_t len;
+    ssize_t offset;
+    cmd_direction_t dir;
 } disk_cmd_t;
 
-static void *rawdevice_write(void *arg);
-static void *rawdevice_read(void *arg);
+static void *rawdevice_write(rawdevice_t *dev, disk_cmd_t *arg);
+static void *rawdevice_read(rawdevice_t *dev, disk_cmd_t *arg);
 rawdevice_t *rawdevice_new(int fd, char *devname);
 static void *rawdevice_loop(void *arg);
 void rawdevice_free(rawdevice_t *dev);
@@ -88,18 +93,27 @@ int rawfs_write(rawfs_t *fs, void *buf, size_t size) {
         else {
             widx = i;
             fs->recordmap[i] = newrecord;
+            newrecord->offset = -1;
             break;
         }
     }
 
     for( int i = 0;i<fs->device_count;i++ ) {
+        if(newrecord->offset == -1) {
+            newrecord->offset = fs->devices[i]->last_off;
+            fs->devices[i]->last_off += newrecord->size;
+        }
+    }
+
+    for( int i = 0;i<fs->device_count;i++ ) {
         disk_cmd_t *warg = calloc(1,sizeof(disk_cmd_t) );
-        warg->buf = malloc(wlen);
+        warg->buf = calloc(1, wlen);
         memcpy(warg->buf, &wbuf[wlen * i], wlen);
         warg->len = wlen;
-        warg->rec = fs->recordmap[widx];
-        warg->dev = fs->devices[i];
-        queue_push(fs->devices[i]->write_queue, warg);
+        warg->dir = CMD_WRITE;
+        warg->offset = newrecord->offset;
+        //queue_push(fs->devices[i]->write_queue, warg);
+        rawdevice_write(fs->devices[i], warg);
     }
 
     return widx;
@@ -107,7 +121,6 @@ int rawfs_write(rawfs_t *fs, void *buf, size_t size) {
 
 size_t rawfs_read(rawfs_t *fs, uint32_t id, void *buf, size_t size) {
     record_t *record_to_read = fs->recordmap[id];
-
     if(record_to_read == NULL) {
         return -1;
     }
@@ -117,14 +130,14 @@ size_t rawfs_read(rawfs_t *fs, uint32_t id, void *buf, size_t size) {
         disk_cmd_t *rarg = calloc(1,sizeof(disk_cmd_t));
         rarg->buf = buf_start;
         rarg->len = record_to_read->size;
-        rarg->rec = record_to_read;
-        rarg->dev = fs->devices[read_idx];
-        pthread_create(&fs->thread_holder[read_idx], NULL, &rawdevice_read,rarg);
+        rarg->dir = CMD_READ;
+        rarg->offset = record_to_read->offset;
+        if(rarg->offset == -1) {
+            fprintf(stderr,"\n!!!!\n");
+            exit(1);
+        }
+        rawdevice_read(fs->devices[read_idx], rarg);
         buf_start+=record_to_read->size;
-    }
-
-    for(int i = 0;i<fs->device_count;i++) {
-        pthread_join(fs->thread_holder[i], NULL);
     }
 
     return size;
@@ -173,32 +186,33 @@ void rawdevice_free(rawdevice_t *dev) {
     free(dev);
 }
 
-static void *rawdevice_write(void *arg) {
-    disk_cmd_t *warg = (disk_cmd_t *) arg;
-
-    if(lseek(warg->dev->fd, warg->dev->last_off,  SEEK_SET) < 0) {
+static void *rawdevice_write(rawdevice_t *device, disk_cmd_t *arg) {
+    //fprintf(stderr,"WRITE: %s l %zu o %zu\n", device->devname, arg->len, arg->offset);
+    if(lseek(device->fd, arg->offset,  SEEK_SET) < 0) {
         perror("lseek");
+        fprintf(stderr,"offset: %zu\n", arg->offset);
         exit(1);
     };
-    int wr = write(warg->dev->fd, warg->buf, warg->len);
-    warg->rec->size = wr;
-    warg->rec->offset = warg->dev->last_off;
-    warg->dev->last_off += wr;
-    free(warg->buf);
-    warg->buf = NULL;
-    free(warg);
+    ssize_t wr = write(device->fd, arg->buf, arg->len);
+    if(wr != arg->len) {
+        fprintf(stderr,"rawdevice_write: Crash! %d %p %zu %zu\n", device->fd, arg->buf, arg->len, wr);
+        exit(1);
+    }
+    free(arg->buf); // FIXME!
+    free(arg);
     return NULL;
 }
 
-static void *rawdevice_read(void *arg) {
-    disk_cmd_t *cmd = (disk_cmd_t *) arg;
-    if( lseek( cmd->dev->fd, cmd->rec->offset,SEEK_SET ) < 0) {
+static void *rawdevice_read(rawdevice_t *device, disk_cmd_t *arg) {
+    if( lseek( device->fd, arg->offset,SEEK_SET ) < 0) {
         perror("lseek");
+        fprintf(stderr,"offset: %zu\n", arg->offset);
         exit(1);
     };
-    int readed = read(cmd->dev->fd, cmd->buf, cmd->len);
-    if( readed != cmd->len ) {
-        fprintf(stderr,"rawdevice_read: ask %d read %d\n", cmd->len, readed);
+    ssize_t readed = read(device->fd, arg->buf, arg->len);
+    if( readed != arg->len ) {
+        fprintf(stderr,"rawdevice_read: ask %zu read %zu. Crash!\n", arg->len, readed);
+        exit(1);
     }
     free(arg);
     return NULL;
@@ -210,8 +224,10 @@ static void *rawdevice_loop(void *arg) {
     while(device->running != 0) {
         if(device->write_queue->size != 0) {
             disk_cmd_t *cmd = queue_pop(device->write_queue);
-            fprintf(stderr,"cmd %p\n", cmd);            
-            rawdevice_write(cmd);
+            if(cmd != NULL) {
+                rawdevice_write(device, cmd);
+                sync();
+            }
         }
     }
     return NULL;

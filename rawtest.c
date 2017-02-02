@@ -5,12 +5,12 @@
 int main() {
 
     char *devs[]  = {
-        "/tmp/device1.bin",
-        "/tmp/device2.bin"
+        "/dev/sda",
+        "/dev/sdb"
     };
 
-    #define TESTCOUNT 10
-    #define TESTBUFLEN 1024*1024
+    #define TESTCOUNT 1000
+    #define TESTBUFLEN 6*1024*1024
 
     rawfs_t *fs = rawfs_new(devs, sizeof(devs)/sizeof(char*), TESTCOUNT);
 
