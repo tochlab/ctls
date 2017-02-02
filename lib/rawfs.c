@@ -17,6 +17,7 @@ typedef struct {
 static void *rawdevice_write(void *arg);
 static void *rawdevice_read(void *arg);
 rawdevice_t *rawdevice_new(int fd, char *devname);
+static void *rawdevice_loop(void *arg);
 void rawdevice_free(rawdevice_t *dev);
 
 rawfs_t *rawfs_new(char *devlist[], int devcount, int prealloc) {
@@ -93,15 +94,12 @@ int rawfs_write(rawfs_t *fs, void *buf, size_t size) {
 
     for( int i = 0;i<fs->device_count;i++ ) {
         disk_cmd_t *warg = calloc(1,sizeof(disk_cmd_t) );
-        warg->buf = &wbuf[wlen * i];
+        warg->buf = malloc(wlen);
+        memcpy(warg->buf, &wbuf[wlen * i], wlen);
         warg->len = wlen;
         warg->rec = fs->recordmap[widx];
         warg->dev = fs->devices[i];
-        pthread_create(&fs->thread_holder[i], NULL, &rawdevice_write, warg);
-    }
-
-    for(int i = 0;i<fs->device_count;i++) {
-        pthread_join(fs->thread_holder[i], NULL);
+        queue_push(fs->devices[i]->write_queue, warg);
     }
 
     return widx;
@@ -161,6 +159,12 @@ rawdevice_t *rawdevice_new(int fd, char *devname) {
     result->devname = calloc(1, strlen(devname)+1);
     strcpy(result->devname, devname);
     result->last_off = 0;
+    result->write_queue = queue_new();
+    int thread_result = pthread_create(&result->thread, NULL, &rawdevice_loop, result);
+    if( thread_result != 0) {
+        fprintf(stderr,"Unable to start thread. Die...\n");
+        exit(1);
+    }
     return result;
 }
 
@@ -180,6 +184,8 @@ static void *rawdevice_write(void *arg) {
     warg->rec->size = wr;
     warg->rec->offset = warg->dev->last_off;
     warg->dev->last_off += wr;
+    free(warg->buf);
+    warg->buf = NULL;
     free(warg);
     return NULL;
 }
@@ -195,5 +201,18 @@ static void *rawdevice_read(void *arg) {
         fprintf(stderr,"rawdevice_read: ask %d read %d\n", cmd->len, readed);
     }
     free(arg);
+    return NULL;
+}
+
+static void *rawdevice_loop(void *arg) {
+    rawdevice_t *device = (rawdevice_t *) arg;
+    device->running = 1;
+    while(device->running != 0) {
+        if(device->write_queue->size != 0) {
+            disk_cmd_t *cmd = queue_pop(device->write_queue);
+            fprintf(stderr,"cmd %p\n", cmd);            
+            rawdevice_write(cmd);
+        }
+    }
     return NULL;
 }

@@ -4,6 +4,8 @@
 #include <sys/types.h>
 #include <pthread.h>
 
+#include "queue.h"
+
 typedef enum {
     REC_ACTIVE,
     REC_DELETED
@@ -19,6 +21,9 @@ typedef struct {
     int fd;
     char *devname;
     size_t last_off;
+    pthread_t thread;
+    int running;
+    queue_t *write_queue;
 } rawdevice_t;
 
 typedef struct {
