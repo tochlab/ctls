@@ -109,7 +109,6 @@ int rawfs_write(rawfs_t *fs, void *buf, size_t size) {
     for( int i = 0;i<fs->device_count;i++ ) {
         disk_cmd_t *warg = calloc(1,sizeof(disk_cmd_t) );
         warg->buf = calloc(1, wlen);
-        fprintf(stderr,"Alloc %p\n", warg->buf);
         memcpy(warg->buf, &wbuf[wlen * i], wlen);
         warg->len = wlen;
         warg->dir = CMD_WRITE;
@@ -230,7 +229,6 @@ static void *rawdevice_loop(void *arg) {
             if(cmd != NULL) {
                 rawdevice_write(device, cmd);                                
                 sync();
-                fprintf(stderr,"Free %p\n", cmd->buf);
                 free(cmd->buf);
                 cmd->buf = NULL;
                 free(cmd);
