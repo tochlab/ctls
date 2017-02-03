@@ -22,6 +22,8 @@ typedef struct {
     char *devname;
     size_t last_off;
     pthread_t thread;
+    pthread_cond_t condvar;
+    pthread_mutex_t mux;
     int running;
     queue_t *write_queue;
 } rawdevice_t;

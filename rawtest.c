@@ -5,11 +5,11 @@
 int main() {
 
     char *devs[]  = {
-        "/dev/sda",
-        "/dev/sdb"
+        "/tmp/device1.bin",
+        "/tmp/device2.bin"
     };
 
-    #define TESTCOUNT 1000
+    #define TESTCOUNT 100
     #define TESTBUFLEN 6*1024*1024
 
     rawfs_t *fs = rawfs_new(devs, sizeof(devs)/sizeof(char*), TESTCOUNT);
@@ -26,13 +26,11 @@ int main() {
         for( int i = 0;i< TESTBUFLEN;i++) {
             testbuf[ i ] = i + test_idx;
         }
-        fprintf(stderr,"Writing ... %d ", test_idx);
+        usleep(500000);
+        //fprintf(stderr,"Writing ... %d ", test_idx);
         gettimeofday(&start, NULL);
         int result = rawfs_write(fs, testbuf, TESTBUFLEN * sizeof(int));
         gettimeofday(&end, NULL);
-        long usec = (end.tv_sec - start.tv_sec) * 1000000 + (end.tv_usec - start.tv_usec);
-        float speed = (TESTBUFLEN / (usec / 1000000.f)) / (1024 * 1024);
-        fprintf(stderr,"%.2f Mb/s\r", speed);
         if( result != test_idx ) {
             fprintf(stderr,"test_idx warning %d/%d\n", result, test_idx);
         }

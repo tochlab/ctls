@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "rawfs.h"
 #include <stdlib.h>
 #include <sys/types.h>
@@ -31,7 +32,7 @@ rawfs_t *rawfs_new(char *devlist[], int devcount, int prealloc) {
 
     for ( int idx = 0;idx < devcount;idx++) {
         fprintf(stderr,"Opening '%s' ...", devlist[idx]);
-        int fd = open(devlist[idx], O_RDWR, O_SYNC);
+        int fd = open(devlist[idx], O_RDWR, O_DIRECT);
         if(fd < 0) {
             perror(" ");
             fprintf(stderr,"FAIL\n");
@@ -108,12 +109,14 @@ int rawfs_write(rawfs_t *fs, void *buf, size_t size) {
     for( int i = 0;i<fs->device_count;i++ ) {
         disk_cmd_t *warg = calloc(1,sizeof(disk_cmd_t) );
         warg->buf = calloc(1, wlen);
+        fprintf(stderr,"Alloc %p\n", warg->buf);
         memcpy(warg->buf, &wbuf[wlen * i], wlen);
         warg->len = wlen;
         warg->dir = CMD_WRITE;
         warg->offset = newrecord->offset;
-        //queue_push(fs->devices[i]->write_queue, warg);
-        rawdevice_write(fs->devices[i], warg);
+        queue_push(fs->devices[i]->write_queue, warg);
+        pthread_cond_signal(&fs->devices[i]->condvar);
+        //rawdevice_write(fs->devices[i], warg);
     }
 
     return widx;
@@ -173,11 +176,13 @@ rawdevice_t *rawdevice_new(int fd, char *devname) {
     strcpy(result->devname, devname);
     result->last_off = 0;
     result->write_queue = queue_new();
-    int thread_result = pthread_create(&result->thread, NULL, &rawdevice_loop, result);
+    int thread_result = pthread_create(&result->thread, NULL, &rawdevice_loop, result);    
     if( thread_result != 0) {
         fprintf(stderr,"Unable to start thread. Die...\n");
         exit(1);
     }
+
+    pthread_cond_init(&result->condvar, NULL);
     return result;
 }
 
@@ -187,7 +192,6 @@ void rawdevice_free(rawdevice_t *dev) {
 }
 
 static void *rawdevice_write(rawdevice_t *device, disk_cmd_t *arg) {
-    //fprintf(stderr,"WRITE: %s l %zu o %zu\n", device->devname, arg->len, arg->offset);
     if(lseek(device->fd, arg->offset,  SEEK_SET) < 0) {
         perror("lseek");
         fprintf(stderr,"offset: %zu\n", arg->offset);
@@ -198,8 +202,6 @@ static void *rawdevice_write(rawdevice_t *device, disk_cmd_t *arg) {
         fprintf(stderr,"rawdevice_write: Crash! %d %p %zu %zu\n", device->fd, arg->buf, arg->len, wr);
         exit(1);
     }
-    free(arg->buf); // FIXME!
-    free(arg);
     return NULL;
 }
 
@@ -222,11 +224,16 @@ static void *rawdevice_loop(void *arg) {
     rawdevice_t *device = (rawdevice_t *) arg;
     device->running = 1;
     while(device->running != 0) {
-        if(device->write_queue->size != 0) {
+        pthread_cond_wait(&device->condvar, &device->mux);
+        while(device->write_queue->size != 0) {
             disk_cmd_t *cmd = queue_pop(device->write_queue);
             if(cmd != NULL) {
-                rawdevice_write(device, cmd);
+                rawdevice_write(device, cmd);                                
                 sync();
+                fprintf(stderr,"Free %p\n", cmd->buf);
+                free(cmd->buf);
+                cmd->buf = NULL;
+                free(cmd);
             }
         }
     }
